@@ -1,0 +1,122 @@
+# GTM Voyager Platform - .gitignore
+
+# Environment variables
+.env
+.env.local
+.env.production
+.env.staging
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Jupyter Notebooks
+.ipynb_checkpoints
+
+# AI Models (large files)
+models/whisper/*.pt
+models/llama/*.gguf
+models/custom/*.bin
+models/custom/*.safetensors
+
+# Data files
+data/raw/audio/*.wav
+data/raw/audio/*.mp3
+data/raw/audio/*.m4a
+data/processed/audio/*.wav
+data/processed/audio/*.mp3
+data/cache/*
+data/outputs/*
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Docker
+.dockerignore
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# API Keys and secrets
+secrets/
+*.key
+*.pem
+*.crt
+
+# n8n
+n8n_data/
+.n8n/
+
+# CUDA
+*.ptx
+*.cubin
+
+# Coverage reports
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+

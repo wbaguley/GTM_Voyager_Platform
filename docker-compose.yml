@@ -1,0 +1,124 @@
+# GTM Voyager Platform - Multi-Tenant Docker Architecture
+
+version: '3.8'
+
+services:
+  # Base GTM Voyager Platform Service
+  gtm-voyager-base:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.gtm-voyager
+    image: gtm-voyager:latest
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+      - ./data:/app/data
+    networks:
+      - gtm-internal
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # PostgreSQL Database for Multi-Tenant Data
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: gtm_voyager
+      POSTGRES_USER: gtm_admin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/init-db:/docker-entrypoint-initdb.d
+    networks:
+      - gtm-internal
+    ports:
+      - "5432:5432"
+
+  # Redis for Caching and Session Management
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    networks:
+      - gtm-internal
+    ports:
+      - "6379:6379"
+
+  # Client Template - n8n Instance (Template for client deployments)
+  n8n-template:
+    image: n8nio/n8n:latest
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
+      - N8N_HOST=${N8N_HOST}
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL}
+      - GENERIC_TIMEZONE=${TIMEZONE}
+    volumes:
+      - n8n_template_data:/home/node/.n8n
+    networks:
+      - gtm-internal
+    ports:
+      - "5678:5678"
+    depends_on:
+      - postgres
+      - redis
+
+  # GTM Voyager API Gateway
+  api-gateway:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    environment:
+      - DATABASE_URL=postgresql://gtm_admin:${POSTGRES_PASSWORD}@postgres:5432/gtm_voyager
+      - REDIS_URL=redis://redis:6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_ORG_ID=${OPENAI_ORG_ID}
+    volumes:
+      - ./src:/app/src
+      - ./config:/app/config
+    networks:
+      - gtm-internal
+      - gtm-external
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - redis
+      - gtm-voyager-base
+
+  # Nginx Reverse Proxy for Multi-Tenant Routing
+  nginx:
+    image: nginx:alpine
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d
+    networks:
+      - gtm-external
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - api-gateway
+
+networks:
+  gtm-internal:
+    driver: bridge
+    internal: true
+  gtm-external:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  n8n_template_data:
+
