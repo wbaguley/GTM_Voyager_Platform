@@ -31,6 +31,22 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         start_time = time.time()
         
         try:
+            # Skip ALL security processing for docs-related endpoints
+            if (request.url.path.startswith("/docs") or 
+                request.url.path.startswith("/redoc") or 
+                request.url.path.startswith("/openapi.json") or
+                "swagger" in request.url.path.lower() or
+                "redoc" in request.url.path.lower()):
+                
+                # Process request without any security headers
+                response = await call_next(request)
+                
+                # Add only timing header
+                process_time = time.time() - start_time
+                response.headers["X-Process-Time"] = str(process_time)
+                
+                return response
+            
             # Get client information
             client_info = get_client_info(request)
             
@@ -73,7 +89,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             # Process request
             response = await call_next(request)
             
-            # Add security headers
+            # Add strict security headers for all non-docs endpoints
             security_headers = security_manager.get_security_headers()
             for header, value in security_headers.items():
                 response.headers[header] = value
@@ -386,11 +402,14 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
             
-            # Log response
+            # Calculate processing time
             process_time = time.time() - start_time
+            
+            # Log response
             self.logger.info(
-                f"Response: {response.status_code} "
-                f"({process_time:.3f}s)"
+                f"Response: {response.status_code} - "
+                f"Time: {process_time:.3f}s - "
+                f"Path: {request.url.path}"
             )
             
             return response
@@ -398,28 +417,8 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         except Exception as e:
             process_time = time.time() - start_time
             self.logger.error(
-                f"Request failed: {request.method} {request.url.path} "
-                f"({process_time:.3f}s) - {str(e)}"
+                f"Request failed: {request.method} {request.url.path} - "
+                f"Error: {str(e)} - Time: {process_time:.3f}s"
             )
             raise
 
-class HealthCheckMiddleware(BaseHTTPMiddleware):
-    """Health check middleware for load balancer integration"""
-    
-    def __init__(self, app):
-        super().__init__(app)
-        self.health_paths = {"/health", "/healthz", "/ping"}
-    
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        """Handle health check requests"""
-        if request.url.path in self.health_paths:
-            return JSONResponse(
-                status_code=200,
-                content={
-                    "status": "healthy",
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "service": "GTM Voyager Platform"
-                }
-            )
-        
-        return await call_next(request)

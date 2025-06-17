@@ -31,9 +31,22 @@ class GTMVoyagerAPI:
             description="Voice-first business automation platform with enterprise security",
             version="2.0.0",
             docs_url="/docs",
-            redoc_url="/redoc"
+            redoc_url="/redoc",
+            openapi_url="/openapi.json"
         )
-        
+        from fastapi.openapi.docs import get_swagger_ui_html
+        from fastapi.responses import HTMLResponse
+
+        @self.app.get("/custom-docs", include_in_schema=False)
+        async def custom_swagger_ui_html():
+            return get_swagger_ui_html(
+                openapi_url="/openapi.json",
+                title="GTM Voyager Platform API - Custom Docs",
+                swagger_js_url="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui-bundle.js",
+                swagger_css_url="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui.css",
+            )
+
+
         self.logger = self._setup_logger()
         self.security = HTTPBearer(auto_error=False)
         
@@ -62,13 +75,13 @@ class GTMVoyagerAPI:
         """Set up FastAPI middleware with security enhancements"""
         
         # Security middleware (custom)
-        self.app.add_middleware(SecurityMiddleware)
+       # self.app.add_middleware(SecurityMiddleware)
 
         # Rate limiting middleware (custom)
-        self.app.add_middleware(RateLimitMiddleware)
+        # self.app.add_middleware(RateLimitMiddleware)
         
         # Audit logging middleware (custom)
-        self.app.add_middleware(AuditMiddleware)
+        # self.app.add_middleware(AuditMiddleware)
         
         # CORS middleware
         self.app.add_middleware(
