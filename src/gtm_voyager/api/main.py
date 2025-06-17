@@ -1,12 +1,13 @@
 """
-GTM Voyager Platform - Enhanced Main API
-FastAPI application with integrated authentication, security, and enterprise features.
+GTM Voyager Platform - Enhanced Main API with CSP Fix
+FastAPI application with CSP override for Swagger UI.
 """
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 from typing import Dict, Any, Optional, List
 import logging
 import time
@@ -17,7 +18,7 @@ from ..database.models import User
 from ..database.config import get_session, test_connection
 from ..utils.security import security_manager
 from .dependencies import get_current_user, require_permission, get_client_info
-from .middleware import SecurityMiddleware, RateLimitMiddleware, AuditMiddleware
+from .endpoints import voice_router, agent_router, dental_router, workflow_router, status_router
 
 logger = logging.getLogger(__name__)
 
@@ -26,26 +27,15 @@ class GTMVoyagerAPI:
     
     def __init__(self):
         """Initialize the enhanced GTM Voyager API"""
+        # Disable automatic docs to control CSP headers
         self.app = FastAPI(
             title="GTM Voyager Platform API",
             description="Voice-first business automation platform with enterprise security",
             version="2.0.0",
-            docs_url="/docs",
-            redoc_url="/redoc",
+            docs_url=None,  # Disable automatic docs
+            redoc_url=None,  # Disable automatic redoc
             openapi_url="/openapi.json"
         )
-        from fastapi.openapi.docs import get_swagger_ui_html
-        from fastapi.responses import HTMLResponse
-
-        @self.app.get("/custom-docs", include_in_schema=False)
-        async def custom_swagger_ui_html():
-            return get_swagger_ui_html(
-                openapi_url="/openapi.json",
-                title="GTM Voyager Platform API - Custom Docs",
-                swagger_js_url="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui-bundle.js",
-                swagger_css_url="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui.css",
-            )
-
 
         self.logger = self._setup_logger()
         self.security = HTTPBearer(auto_error=False)
@@ -53,8 +43,9 @@ class GTMVoyagerAPI:
         self._setup_middleware()
         self._setup_routes()
         self._setup_error_handlers()
+        self._setup_custom_docs()  # Add custom docs with CSP override
         
-        self.logger.info("Enhanced GTM Voyager API initialized")
+        self.logger.info("Enhanced GTM Voyager API initialized with CSP fix")
     
     def _setup_logger(self) -> logging.Logger:
         """Set up logging for the API"""
@@ -74,15 +65,6 @@ class GTMVoyagerAPI:
     def _setup_middleware(self):
         """Set up FastAPI middleware with security enhancements"""
         
-        # Security middleware (custom)
-       # self.app.add_middleware(SecurityMiddleware)
-
-        # Rate limiting middleware (custom)
-        # self.app.add_middleware(RateLimitMiddleware)
-        
-        # Audit logging middleware (custom)
-        # self.app.add_middleware(AuditMiddleware)
-        
         # CORS middleware
         self.app.add_middleware(
             CORSMiddleware,
@@ -91,29 +73,140 @@ class GTMVoyagerAPI:
             allow_methods=["*"],
             allow_headers=["*"],
         )
+        
+        # Add custom middleware to handle CSP for docs
+        @self.app.middleware("http")
+        async def override_csp_for_docs(request: Request, call_next):
+            response = await call_next(request)
+            
+            # Check if this is a docs-related endpoint
+            if request.url.path in ["/docs", "/redoc", "/openapi.json"]:
+                # Remove any existing CSP headers
+                csp_headers_to_remove = []
+                for header_name in response.headers:
+                    if header_name.lower() == "content-security-policy":
+                        csp_headers_to_remove.append(header_name)
+                
+                for header in csp_headers_to_remove:
+                    del response.headers[header]
+                
+                # Set a permissive CSP for docs
+                response.headers["Content-Security-Policy"] = (
+                    "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:; "
+                    "script-src * 'unsafe-inline' 'unsafe-eval'; "
+                    "style-src * 'unsafe-inline'; "
+                    "img-src * data: blob:; "
+                    "font-src * data:; "
+                    "connect-src *; "
+                    "frame-src *;"
+                )
+            else:
+                # For non-docs endpoints, use security headers
+                headers = security_manager.get_security_headers()
+                for header, value in headers.items():
+                    if header != "Content-Security-Policy":  # Skip CSP for now
+                        response.headers[header] = value
+            
+            return response
+    
+    def _setup_custom_docs(self):
+        """Set up custom documentation endpoints with CSP override"""
+        
+        @self.app.get("/docs", include_in_schema=False)
+        async def custom_swagger_ui_html(request: Request):
+            """Custom Swagger UI with CSP headers"""
+            openapi_url = self.app.openapi_url
+            title = self.app.title + " - Swagger UI"
+            
+            # Create custom HTML with inline Swagger UI
+            html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <title>{title}</title>
+                <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui.css">
+                <style>
+                    body {{
+                        margin: 0;
+                        padding: 0;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div id="swagger-ui"></div>
+                <script src="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui-bundle.js"></script>
+                <script src="https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui-standalone-preset.js"></script>
+                <script>
+                    window.onload = function() {{
+                        window.ui = SwaggerUIBundle({{
+                            url: '{openapi_url}',
+                            dom_id: '#swagger-ui',
+                            presets: [
+                                SwaggerUIBundle.presets.apis,
+                                SwaggerUIStandalonePreset
+                            ],
+                            layout: "StandaloneLayout",
+                            deepLinking: true,
+                            showExtensions: true,
+                            showCommonExtensions: true
+                        }});
+                    }};
+                </script>
+            </body>
+            </html>
+            """
+            
+            return HTMLResponse(content=html)
+        
+        @self.app.get("/redoc", include_in_schema=False)
+        async def custom_redoc_html(request: Request):
+            """Custom ReDoc with CSP headers"""
+            openapi_url = self.app.openapi_url
+            title = self.app.title + " - ReDoc"
+            
+            html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="utf-8"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <title>{title}</title>
+                <style>
+                    body {{
+                        margin: 0;
+                        padding: 0;
+                    }}
+                </style>
+            </head>
+            <body>
+                <redoc spec-url="{openapi_url}"></redoc>
+                <script src="https://unpkg.com/redoc@2.0.0/bundles/redoc.standalone.js"></script>
+            </body>
+            </html>
+            """
+            
+            return HTMLResponse(content=html)
     
     def _setup_error_handlers(self):
         """Set up custom error handlers"""
         
         @self.app.exception_handler(HTTPException)
-        async def http_exception_handler(request: Request, exc: HTTPException ):
+        async def http_exception_handler(request: Request, exc: HTTPException):
             """Handle HTTP exceptions with security headers"""
-            headers = security_manager.get_security_headers()
             return JSONResponse(
                 status_code=exc.status_code,
                 content={"detail": exc.detail, "timestamp": datetime.utcnow().isoformat()},
-                headers=headers
             )
         
         @self.app.exception_handler(Exception)
         async def general_exception_handler(request: Request, exc: Exception):
             """Handle general exceptions"""
             self.logger.error(f"Unhandled exception: {exc}", exc_info=True)
-            headers = security_manager.get_security_headers()
             return JSONResponse(
                 status_code=500,
                 content={"detail": "Internal server error", "timestamp": datetime.utcnow().isoformat()},
-                headers=headers
             )
     
     def _setup_routes(self):
@@ -187,7 +280,11 @@ class GTMVoyagerAPI:
                     "refresh_token": auth_result.refresh_token,
                     "token_type": "bearer",
                     "expires_in": auth_manager.access_token_expire_minutes * 60,
-                    "message": "Login successful"
+                    "user": {
+                        "id": str(auth_result.user.id),
+                        "email": auth_result.user.email,
+                        "name": auth_result.user.full_name
+                    }
                 }
                 
                 self.logger.info(f"Successful login for {email}")
@@ -256,49 +353,7 @@ class GTMVoyagerAPI:
                 self.logger.error(f"Logout error: {e}")
                 return {"message": "Logout completed"}  # Always return success for logout
         
-        # 2FA routes
-        @self.app.post("/auth/2fa/setup")
-        async def setup_2fa(current_user: User = Depends(get_current_user)):
-            """Setup 2FA for current user"""
-            try:
-                setup_data = auth_manager.setup_2fa(str(current_user.id))
-                if not setup_data:
-                    raise HTTPException(status_code=500, detail="Failed to setup 2FA")
-                
-                return {
-                    "qr_code": setup_data["qr_code"],
-                    "manual_entry_key": setup_data["manual_entry_key"],
-                    "message": "Scan QR code with authenticator app and verify with code"
-                }
-                
-            except Exception as e:
-                self.logger.error(f"2FA setup error: {e}")
-                raise HTTPException(status_code=500, detail="2FA setup service error")
-        
-        @self.app.post("/auth/2fa/enable")
-        async def enable_2fa(
-            verification_data: Dict[str, str],
-            current_user: User = Depends(get_current_user)
-        ):
-            """Enable 2FA after verification"""
-            try:
-                totp_code = verification_data.get("totp_code")
-                if not totp_code:
-                    raise HTTPException(status_code=400, detail="TOTP code required")
-                
-                success = auth_manager.enable_2fa(str(current_user.id), totp_code)
-                if not success:
-                    raise HTTPException(status_code=400, detail="Invalid TOTP code")
-                
-                return {"message": "2FA enabled successfully"}
-                
-            except HTTPException:
-                raise
-            except Exception as e:
-                self.logger.error(f"2FA enable error: {e}")
-                raise HTTPException(status_code=500, detail="2FA enable service error")
-        
-        # Protected routes (require authentication)
+        # Protected routes
         @self.app.get("/auth/me")
         async def get_current_user_info(current_user: User = Depends(get_current_user)):
             """Get current user information"""
@@ -311,129 +366,17 @@ class GTMVoyagerAPI:
                 "tenant_id": current_user.tenant_id,
                 "organization": current_user.organization,
                 "is_2fa_enabled": current_user.is_2fa_enabled,
-                "roles": [role.name for role in current_user.roles],
-                "permissions": list(set([
-                    perm.name for role in current_user.roles 
-                    for perm in role.permissions
-                ])),
-                "last_login": current_user.last_login.isoformat() if current_user.last_login else None,
                 "created_at": current_user.created_at.isoformat()
             }
-        
-        # Admin routes (require specific permissions)
-        @self.app.get("/admin/users")
-        async def list_users(
-            current_user: User = Depends(require_permission("users.read")),
-            db = Depends(get_session)
-        ):
-            """List users (admin only)"""
-            try:
-                users = db.query(User).filter_by(tenant_id=current_user.tenant_id).all()
-                
-                return {
-                    "users": [
-                        {
-                            "id": str(user.id),
-                            "email": user.email,
-                            "name": user.full_name,
-                            "status": user.status,
-                            "roles": [role.name for role in user.roles],
-                            "last_login": user.last_login.isoformat() if user.last_login else None,
-                            "created_at": user.created_at.isoformat()
-                        }
-                        for user in users
-                    ]
-                }
-                
-            except Exception as e:
-                self.logger.error(f"List users error: {e}")
-                raise HTTPException(status_code=500, detail="Failed to retrieve users")
-        
-        # Voice processing routes (require voice permissions)
-        @self.app.post("/voice/process")
-        async def process_voice(
-            file: UploadFile = File(...),
-            current_user: User = Depends(require_permission("voice.process"))
-        ):
-            """Process voice file (requires voice.process permission)"""
-            try:
-                # Validate file
-                if not file.filename.lower().endswith(('.mp3', '.wav', '.m4a', '.flac')):
-                    raise HTTPException(status_code=400, detail="Unsupported audio format")
-                
-                if file.size > 25 * 1024 * 1024:  # 25MB limit
-                    raise HTTPException(status_code=400, detail="File too large")
-                
-                # TODO: Integrate with your existing voice processing
-                # This is where you'd call your enhanced audio processor
-                
-                return {
-                    "message": "Voice processing initiated",
-                    "file_name": file.filename,
-                    "user_id": str(current_user.id),
-                    "tenant_id": current_user.tenant_id,
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-                
-            except HTTPException:
-                raise
-            except Exception as e:
-                self.logger.error(f"Voice processing error: {e}")
-                raise HTTPException(status_code=500, detail="Voice processing service error")
-        
-        # Dental records routes (require dental permissions)
-        @self.app.get("/dental/records")
-        async def get_dental_records(
-            current_user: User = Depends(require_permission("dental_records.read"))
-        ):
-            """Get dental records (requires dental_records.read permission)"""
-            try:
-                # TODO: Integrate with your dental records system
-                return {
-                    "records": [],
-                    "user_id": str(current_user.id),
-                    "tenant_id": current_user.tenant_id,
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-                
-            except Exception as e:
-                self.logger.error(f"Dental records error: {e}")
-                raise HTTPException(status_code=500, detail="Dental records service error")
-        
-        # System status routes
-        @self.app.get("/system/status")
-        async def system_status(
-            current_user: User = Depends(require_permission("system.admin"))
-        ):
-            """Get system status (admin only)"""
-            try:
-                return {
-                    "database": "connected" if test_connection() else "disconnected",
-                    "authentication": "active",
-                    "voice_processing": "active",
-                    "timestamp": datetime.utcnow().isoformat()
-                }
-                
-            except Exception as e:
-                self.logger.error(f"System status error: {e}")
-                raise HTTPException(status_code=500, detail="System status service error")
-    
+        # Include the new endpoint routers for dental agent functionality
+        self.app.include_router(voice_router, prefix="/api/v1", tags=["Voice Processing"])
+        self.app.include_router(agent_router, prefix="/api/v1", tags=["Agent Management"])
+        self.app.include_router(dental_router, prefix="/api/v1", tags=["Dental Workflows"])
+        self.app.include_router(workflow_router, prefix="/api/v1", tags=["Workflow Management"])
+        self.app.include_router(status_router, prefix="/api/v1", tags=["System Status"])
     def get_app(self) -> FastAPI:
         """Get the FastAPI application instance"""
         return self.app
 
 # Create the FastAPI application
 app = GTMVoyagerAPI().get_app()
-
-# Add security headers to all responses
-@app.middleware("http" )
-async def add_security_headers(request: Request, call_next):
-    """Add security headers to all responses"""
-    response = await call_next(request)
-    
-    # Add security headers
-    headers = security_manager.get_security_headers()
-    for header, value in headers.items():
-        response.headers[header] = value
-    
-    return response

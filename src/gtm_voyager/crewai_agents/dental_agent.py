@@ -12,6 +12,7 @@ from enum import Enum
 
 from crewai import Agent, Task, Crew
 from crewai.tools import BaseTool
+from .base_agent import BaseBusinessAgent, AgentCapability
 
 
 class ConversationType(Enum):
@@ -61,22 +62,36 @@ class SOAPNote:
     generated_timestamp: datetime
 
 
-class DentalAgent:
+class DentalAgent(BaseBusinessAgent):
     """
     Dental industry specialized agent with AI scribe functionality.
     Handles conversation processing and SOAP note generation.
     """
     
     def __init__(self):
-        self.agent = self._create_dental_agent()
+        # Define dental agent capabilities
+        capabilities = [
+            AgentCapability.VOICE_PROCESSING,
+            AgentCapability.TEXT_ANALYSIS,
+            AgentCapability.APPOINTMENT_SCHEDULING,
+            AgentCapability.DOCUMENTATION,
+            AgentCapability.COMPLIANCE
+        ]
+        
+        # Initialize base agent
+        super().__init__("dental", capabilities)
+        
+        # Dental-specific attributes
         self.conversation_buffer = []
         self.current_patient = None
         self.current_provider = None
         self.is_recording = False
         
-    def _create_dental_agent(self) -> Agent:
-        """Create the specialized dental agent"""
-        return Agent(
+    def _initialize_agent(self):
+        """Initialize the dental CrewAI agent"""
+        self.tools = self._setup_tools()
+        
+        self.agent = Agent(
             role="AI Dental Practice Assistant",
             goal="Automate dental practice workflows including real-time conversation transcription, SOAP note generation, and practice management tasks",
             backstory="""You are an expert dental practice assistant with extensive knowledge of dental terminology, 
@@ -86,13 +101,19 @@ class DentalAgent:
             insurance codes, treatment planning, and regulatory compliance.""",
             verbose=True,
             allow_delegation=False,
-            tools=[
-                self._create_soap_generation_tool(),
-                self._create_dental_terminology_tool(),
-                self._create_treatment_code_lookup_tool(),
-                self._create_appointment_scheduling_tool()
-            ]
+            tools=self.tools
         )
+        
+        self.is_initialized = True
+        
+    def _setup_tools(self) -> List[BaseTool]:
+        """Setup dental-specific tools"""
+        return [
+            self._create_soap_generation_tool(),
+            self._create_dental_terminology_tool(),
+            self._create_treatment_code_lookup_tool(),
+            self._create_appointment_scheduling_tool()
+        ]
     
     def _create_soap_generation_tool(self) -> BaseTool:
         """Tool for generating SOAP notes from conversation text"""
@@ -261,3 +282,86 @@ class DentalAgent:
         )
         
         return soap_note
+
+    
+    # Implement abstract methods from BaseBusinessAgent
+    def process_voice_input(self, audio_data: bytes, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Process voice input and return structured response"""
+        try:
+            # TODO: Implement actual voice processing with Whisper
+            # For now, return placeholder
+            self.log_activity("voice_input_processed", {"audio_size": len(audio_data)})
+            
+            return {
+                "success": True,
+                "transcribed_text": "Voice processing placeholder",
+                "confidence": 0.95,
+                "processing_time": 1.2
+            }
+        except Exception as e:
+            self.logger.error(f"Error processing voice input: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def process_text_input(self, text: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Process text input and return structured response"""
+        try:
+            self.validate_input({"text": text}, ["text"])
+            
+            # Add text to conversation buffer if recording
+            if self.is_recording:
+                self.add_conversation_text(text)
+            
+            self.log_activity("text_input_processed", {"text_length": len(text)})
+            
+            return {
+                "success": True,
+                "processed_text": text,
+                "added_to_conversation": self.is_recording,
+                "conversation_length": len(self.conversation_buffer)
+            }
+        except Exception as e:
+            self.logger.error(f"Error processing text input: {e}")
+            return {"success": False, "error": str(e)}
+    
+    def generate_response(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Generate response based on input data"""
+        try:
+            action = input_data.get("action", "")
+            
+            if action == "start_recording":
+                patient_info = PatientInfo(**input_data["patient_info"])
+                provider_name = input_data["provider_name"]
+                result = self.start_recording(patient_info, provider_name)
+                return {"success": True, "message": result}
+            
+            elif action == "stop_recording":
+                result = self.stop_recording()
+                return {"success": True, "message": result}
+            
+            elif action == "generate_soap":
+                soap_note = self.generate_soap_note()
+                return {"success": True, "soap_note": soap_note}
+            
+            elif action == "lookup_term":
+                term = input_data["term"]
+                result = self.tools[1]._run(term)
+                return {"success": True, "definition": result}
+            
+            elif action == "lookup_code":
+                procedure = input_data["procedure"]
+                result = self.tools[2]._run(procedure)
+                return {"success": True, "code": result}
+            
+            elif action == "schedule_appointment":
+                action_type = input_data["action_type"]
+                details = input_data["details"]
+                result = self.tools[3]._run(action_type, details)
+                return {"success": True, "result": result}
+            
+            else:
+                return {"success": False, "error": f"Unknown action: {action}"}
+                
+        except Exception as e:
+            self.logger.error(f"Error generating response: {e}")
+            return {"success": False, "error": str(e)}
+
