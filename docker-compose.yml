@@ -38,6 +38,7 @@ services:
       - ./docker/init-db:/docker-entrypoint-initdb.d
     networks:
       - gtm-internal
+      - gtm-external 
     ports:
       - "5432:5432"
 
