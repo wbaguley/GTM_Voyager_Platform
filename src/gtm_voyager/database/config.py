@@ -86,8 +86,9 @@ def get_session_context():
 def test_connection() -> bool:
     """Test database connection"""
     try:
+        from sqlalchemy import text
         with get_session_context() as session:
-            session.execute("SELECT 1")
+            session.execute(text("SELECT 1"))
         logger.info("Database connection test successful")
         return True
     except Exception as e:

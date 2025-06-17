@@ -83,9 +83,20 @@ class EnhancedAuthManager:
             AuthResult with authentication status and tokens
         """
         try:
+              # DEBUG: Log the incoming request
+            logger.info(f"DEBUG: Login attempt for email: {email}")
             with get_session_context() as session:
                 # Find user by email
                 user = session.query(User).filter_by(email=email.lower()).first()
+                
+                # DEBUG: Log user lookup result
+                logger.info(f"DEBUG: User found: {user is not None}")
+                if user:
+                    logger.info(f"DEBUG: User email: {user.email}")
+                    logger.info(f"DEBUG: User status: {user.status}")
+                    logger.info(f"DEBUG: User is_locked: {user.is_locked}")
+                else:
+                    logger.info(f"DEBUG: No user found for email: {email.lower()}")
                 
                 if not user:
                     self._log_security_event(
@@ -198,7 +209,9 @@ class EnhancedAuthManager:
                 )
                 
                 session.commit()
-                
+                # Detach user from session to avoid session binding issues
+                session.expunge(user)
+
                 return AuthResult(
                     success=True,
                     user=user,

@@ -23,6 +23,9 @@ class SecurityManager:
     
     def __init__(self, secret_key: str = None):
         """Initialize the security manager with enhanced features"""
+        # Set up logger FIRST - before anything else
+        self.logger = self._setup_logger()
+        
         self.secret_key = secret_key or secrets.token_urlsafe(32)
         
         # Password hashing with bcrypt
@@ -46,7 +49,6 @@ class SecurityManager:
         self.request_tracking = {}
         self.failed_attempts = {}
         
-        self.logger = self._setup_logger()
         self.logger.info("Enhanced Security Manager initialized")
     
     def _setup_logger(self) -> logging.Logger:
@@ -425,42 +427,161 @@ class SecurityManager:
         return recommendations
     
     def generate_csrf_token(self, session_id: str) -> str:
-        """Generate CSRF token for form protection"""
+        """Generate CSRF token for session"""
         timestamp = str(int(datetime.utcnow().timestamp()))
         data = f"{session_id}:{timestamp}:{self.secret_key}"
-        token = hashlib.sha256(data.encode()).hexdigest()
-        return f"{timestamp}.{token}"
+        return hashlib.sha256(data.encode()).hexdigest()
     
-    def validate_csrf_token(self, token: str, session_id: str, max_age: int = 3600) -> bool:
-        """Validate CSRF token"""
+    def verify_csrf_token(self, token: str, session_id: str, max_age: int = 3600) -> bool:
+        """Verify CSRF token validity"""
         try:
-            timestamp_str, token_hash = token.split('.', 1)
-            timestamp = int(timestamp_str)
+            # Generate expected token for current time window
+            current_time = int(datetime.utcnow().timestamp())
             
-            # Check age
-            now = int(datetime.utcnow().timestamp())
-            if now - timestamp > max_age:
-                return False
+            # Check tokens for the last max_age seconds
+            for i in range(max_age):
+                timestamp = str(current_time - i)
+                data = f"{session_id}:{timestamp}:{self.secret_key}"
+                expected_token = hashlib.sha256(data.encode()).hexdigest()
+                
+                if secrets.compare_digest(token, expected_token):
+                    return True
             
-            # Verify token
-            expected_data = f"{session_id}:{timestamp_str}:{self.secret_key}"
-            expected_hash = hashlib.sha256(expected_data.encode()).hexdigest()
-            
-            return token_hash == expected_hash
-            
-        except (ValueError, AttributeError):
+            return False
+        except Exception:
             return False
     
-    def secure_compare(self, a: str, b: str) -> bool:
-        """Constant-time string comparison to prevent timing attacks"""
-        if len(a) != len(b):
-            return False
+    def generate_secure_filename(self, original_filename: str) -> str:
+        """Generate secure filename to prevent directory traversal"""
+        # Remove path components
+        filename = os.path.basename(original_filename)
         
-        result = 0
-        for x, y in zip(a, b):
-            result |= ord(x) ^ ord(y)
+        # Remove dangerous characters
+        filename = re.sub(r'[^\w\-_\.]', '_', filename)
         
-        return result == 0
+        # Limit length
+        if len(filename) > 255:
+            name, ext = os.path.splitext(filename)
+            filename = name[:250] + ext
+        
+        # Add timestamp to ensure uniqueness
+        timestamp = str(int(datetime.utcnow().timestamp()))
+        name, ext = os.path.splitext(filename)
+        
+        return f"{name}_{timestamp}{ext}"
+    
+    def validate_file_upload(self, filename: str, content: bytes, 
+                           allowed_extensions: List[str] = None,
+                           max_size: int = 10485760) -> Tuple[bool, List[str]]:
+        """
+        Validate file upload for security.
+        
+        Args:
+            filename: Original filename
+            content: File content as bytes
+            allowed_extensions: List of allowed file extensions
+            max_size: Maximum file size in bytes (default 10MB)
+        
+        Returns:
+            Tuple of (is_valid, list_of_issues)
+        """
+        issues = []
+        
+        # Check file size
+        if len(content) > max_size:
+            issues.append(f"File size exceeds maximum allowed size of {max_size} bytes")
+        
+        # Check filename
+        if not filename or len(filename) > 255:
+            issues.append("Invalid filename")
+        
+        # Check file extension
+        if allowed_extensions:
+            file_ext = os.path.splitext(filename)[1].lower()
+            if file_ext not in [ext.lower() for ext in allowed_extensions]:
+                issues.append(f"File extension not allowed. Allowed: {', '.join(allowed_extensions)}")
+        
+        # Check for executable file signatures
+        dangerous_signatures = [
+            b'\x4d\x5a',  # PE executable
+            b'\x7f\x45\x4c\x46',  # ELF executable
+            b'\xfe\xed\xfa',  # Mach-O executable
+            b'\x50\x4b\x03\x04',  # ZIP (could contain executables)
+        ]
+        
+        for signature in dangerous_signatures:
+            if content.startswith(signature):
+                issues.append("File appears to be an executable or archive")
+                break
+        
+        # Check for script content in text files
+        if filename.endswith(('.txt', '.csv', '.json', '.xml')):
+            try:
+                text_content = content.decode('utf-8', errors='ignore').lower()
+                script_patterns = ['<script', 'javascript:', 'vbscript:', 'onload=', 'onerror=']
+                
+                for pattern in script_patterns:
+                    if pattern in text_content:
+                        issues.append("File contains potentially malicious script content")
+                        break
+            except Exception:
+                pass
+        
+        return len(issues) == 0, issues
+    
+    def log_security_event(self, event_type: str, details: Dict[str, Any], 
+                          severity: str = "info") -> None:
+        """Log security events for monitoring and analysis"""
+        log_entry = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "event_type": event_type,
+            "severity": severity,
+            "details": details
+        }
+        
+        # Log based on severity
+        if severity == "critical":
+            self.logger.critical(f"Security Event: {log_entry}")
+        elif severity == "error":
+            self.logger.error(f"Security Event: {log_entry}")
+        elif severity == "warning":
+            self.logger.warning(f"Security Event: {log_entry}")
+        else:
+            self.logger.info(f"Security Event: {log_entry}")
+    
+    def get_client_ip(self, request_headers: Dict[str, str]) -> str:
+        """Extract client IP from request headers, considering proxies"""
+        # Check for forwarded headers (in order of preference)
+        forwarded_headers = [
+            'X-Forwarded-For',
+            'X-Real-IP',
+            'X-Client-IP',
+            'CF-Connecting-IP',  # Cloudflare
+            'True-Client-IP',    # Akamai
+        ]
+        
+        for header in forwarded_headers:
+            if header in request_headers:
+                # X-Forwarded-For can contain multiple IPs
+                ip = request_headers[header].split(',')[0].strip()
+                if self.validate_ip_address(ip):
+                    return ip
+        
+        # Fallback to remote address
+        return request_headers.get('Remote-Addr', '127.0.0.1')
+    
+    def mask_sensitive_data(self, data: str, mask_char: str = '*', 
+                           visible_chars: int = 4) -> str:
+        """Mask sensitive data for logging (e.g., credit cards, SSNs)"""
+        if not data or len(data) <= visible_chars:
+            return mask_char * len(data) if data else ""
+        
+        visible_start = visible_chars // 2
+        visible_end = visible_chars - visible_start
+        
+        masked_middle = mask_char * (len(data) - visible_chars)
+        
+        return data[:visible_start] + masked_middle + data[-visible_end:]
     
     def get_security_headers(self) -> Dict[str, str]:
         """Get recommended security headers for HTTP responses"""
@@ -469,7 +590,7 @@ class SecurityManager:
             "X-Frame-Options": "DENY",
             "X-XSS-Protection": "1; mode=block",
             "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-            "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'",
+            "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:",
             "Referrer-Policy": "strict-origin-when-cross-origin",
             "Permissions-Policy": "geolocation=(), microphone=(), camera=()"
         }

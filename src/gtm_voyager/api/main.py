@@ -63,7 +63,7 @@ class GTMVoyagerAPI:
         
         # Security middleware (custom)
         self.app.add_middleware(SecurityMiddleware)
-        
+
         # Rate limiting middleware (custom)
         self.app.add_middleware(RateLimitMiddleware)
         
@@ -174,13 +174,7 @@ class GTMVoyagerAPI:
                     "refresh_token": auth_result.refresh_token,
                     "token_type": "bearer",
                     "expires_in": auth_manager.access_token_expire_minutes * 60,
-                    "user": {
-                        "id": str(auth_result.user.id),
-                        "email": auth_result.user.email,
-                        "name": auth_result.user.full_name,
-                        "roles": [role.name for role in auth_result.user.roles],
-                        "tenant_id": auth_result.user.tenant_id
-                    }
+                    "message": "Login successful"
                 }
                 
                 self.logger.info(f"Successful login for {email}")

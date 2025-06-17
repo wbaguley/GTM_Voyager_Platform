@@ -12,7 +12,7 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.gtm_voyager.database.config import test_connection, get_connection_info
+from src.gtm_voyager.database.config import test_connection
 from src.gtm_voyager.database.migrations import (
     init_database, create_default_data, reset_database, upgrade_database
 )
