@@ -208,13 +208,21 @@ class EnhancedAuthManager:
                     {"session_id": str(user_session.id)}
                 )
                 
+                 # Create user data dict before committing to avoid session binding issues
+                user_data = {
+                    "id": str(user.id),
+                    "email": user.email,
+                    "username": user.username,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "tenant_id": user.tenant_id,
+                    "status": user.status
+                }
                 session.commit()
-                # Detach user from session to avoid session binding issues
-                session.expunge(user)
 
                 return AuthResult(
                     success=True,
-                    user=user,
+                    user=user_data,
                     access_token=access_token,
                     refresh_token=refresh_token,
                     session_id=str(user_session.id),

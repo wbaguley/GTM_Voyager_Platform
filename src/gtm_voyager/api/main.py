@@ -281,9 +281,9 @@ class GTMVoyagerAPI:
                     "token_type": "bearer",
                     "expires_in": auth_manager.access_token_expire_minutes * 60,
                     "user": {
-                        "id": str(auth_result.user.id),
-                        "email": auth_result.user.email,
-                        "name": auth_result.user.full_name
+                         "id": auth_result.user["id"],  # Already a string from our fix,
+                        "email": auth_result.user["email"],
+                         "name": f"{auth_result.user['first_name']} {auth_result.user['last_name']}"
                     }
                 }
                 
