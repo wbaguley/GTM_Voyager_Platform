@@ -10,6 +10,8 @@ from sqlalchemy import create_engine, Engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
 from contextlib import contextmanager
+from dotenv import load_dotenv
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -134,3 +136,24 @@ def get_connection_info() -> dict:
         "pool_recycle": db_config.pool_recycle,
         "echo": db_config.echo
     }
+
+# MCP Configuration
+import os
+from typing import Optional
+
+class MCPConfig:
+    ENABLE_MCP_SERVER: bool = os.getenv("ENABLE_MCP_SERVER", "false").lower() == "true"
+    MCP_SERVER_PORT: int = int(os.getenv("MCP_SERVER_PORT", "8001"))
+    MCP_AUTH_SECRET: str = os.getenv("MCP_AUTH_SECRET", "change-this-secret-key")
+    MCP_LOG_LEVEL: str = os.getenv("MCP_LOG_LEVEL", "INFO")
+    MCP_MAX_CONNECTIONS: int = int(os.getenv("MCP_MAX_CONNECTIONS", "100"))
+    
+    @classmethod
+    def validate_config(cls) -> bool:
+        """Validate MCP configuration"""
+        if cls.ENABLE_MCP_SERVER and cls.MCP_AUTH_SECRET == "change-this-secret-key":
+            raise ValueError("MCP_AUTH_SECRET must be changed from default value")
+        return True
+
+# Create MCP config instance
+mcp_config = MCPConfig()

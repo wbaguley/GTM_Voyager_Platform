@@ -84,6 +84,10 @@ ffmpeg-python>=0.2.0
 cryptography>=41.0.0
 pyotp>=2.9.0
 
+# MCP Integration Dependencies
+websockets>=11.0.0
+PyJWT>=2.8.0
+
 # GPU Acceleration (optional)
 # torch[cuda]>=2.1.0  # Uncomment for CUDA support
 # llama-cpp-python[cuda]>=0.2.0  # Uncomment for CUDA support
