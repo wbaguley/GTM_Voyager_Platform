@@ -6,7 +6,7 @@ Database connection, session management, and configuration utilities.
 import os
 import logging
 from typing import Generator, Optional
-from sqlalchemy import create_engine, Engine
+from sqlalchemy import create_engine as sqlalchemy_create_engine, Engine
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import QueuePool
 from contextlib import contextmanager
@@ -58,7 +58,7 @@ def get_database_url() -> str:
 
 def create_engine() -> Engine:
     """Create SQLAlchemy engine with connection pooling"""
-    engine = create_engine(
+    engine = sqlalchemy_create_engine(
         db_config.database_url,
         echo=db_config.echo,
         poolclass=QueuePool,
