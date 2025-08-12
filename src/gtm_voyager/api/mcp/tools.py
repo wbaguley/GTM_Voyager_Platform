@@ -44,6 +44,25 @@ async def get_all_mcp_tools() -> List[Dict[str, Any]]:
                 "properties": {},
                 "required": []
             }
+        },
+        # ENHANCED: Add enhanced dental consultation tool
+        {
+            "name": "enhanced_dental_consultation",
+            "description": "Enhanced dental consultation with clinical analysis and differential diagnosis",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Patient's dental concerns and symptoms"
+                    },
+                    "patient_info": {
+                        "type": "object",
+                        "description": "Patient information including name, age, medical history"
+                    }
+                },
+                "required": ["query"]
+            }
         }
     ]
     
@@ -144,6 +163,10 @@ async def execute_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, A
         elif tool_name == "system_status":
             return await execute_system_status_tool(arguments)
         
+        # ENHANCED: Add enhanced dental consultation tool execution
+        elif tool_name == "enhanced_dental_consultation":
+            return await execute_enhanced_dental_consultation_tool(arguments)
+        
         # Voice processing tools
         elif tool_name == "voice_transcribe":
             return await execute_voice_transcribe_tool(arguments)
@@ -204,6 +227,42 @@ async def execute_system_status_tool(arguments: Dict[str, Any]) -> Dict[str, Any
         }
     
     return status
+
+# ENHANCED: Enhanced Dental Consultation Tool
+async def execute_enhanced_dental_consultation_tool(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute enhanced dental consultation with clinical analysis"""
+    try:
+        import aiohttp
+        
+        query = arguments.get('query', '')
+        patient_info = arguments.get('patient_info', {})
+        
+        # Call the enhanced consultation endpoint
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "http://localhost:8000/api/v1/dental/enhanced-consultation",
+                json={"query": query, "patient_info": patient_info},
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    return {
+                        "status": "success",
+                        "result": result
+                    }
+                else:
+                    error_text = await response.text()
+                    return {
+                        "status": "error",
+                        "message": f"API call failed with status {response.status}: {error_text}"
+                    }
+                    
+    except Exception as e:
+        logger.error(f"Enhanced dental consultation error: {e}")
+        return {
+            "status": "error",
+            "message": f"Enhanced dental consultation failed: {str(e)}"
+        }
 
 # Voice Processing Tools
 async def execute_voice_transcribe_tool(arguments: Dict[str, Any]) -> Dict[str, Any]:
@@ -441,8 +500,10 @@ def create_user_profile_from_context(user_context: Dict[str, Any]) -> 'UserProfi
         # Return a minimal profile
         class MinimalUserProfile:
             def __init__(self):
-                self.user_id = "mcp_user"
+                self.user_id = user_context.get("user_id", "mcp_user")
                 self.industry_type = user_context.get("industry_type", "general")
-                self.company_name = "Unknown"
+                self.company_name = user_context.get("company_name", "Unknown")
+                self.preferences = user_context.get("preferences", {})
         
         return MinimalUserProfile()
+
