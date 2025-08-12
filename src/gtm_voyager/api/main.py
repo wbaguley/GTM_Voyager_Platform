@@ -776,6 +776,36 @@ class GTMVoyagerAPI:
             except Exception as e:
                 self.logger.error(f"Workflow trigger error: {e}")
                 raise HTTPException(status_code=500, detail="Workflow service error")
+            
+        # Enhanced Dental Consultation Endpoint - ADD THIS
+        @self.app.post("/api/v1/dental/enhanced-consultation")
+        async def enhanced_dental_consultation(request: dict):
+            """Enhanced dental consultation with clinical analysis"""
+            try:
+                patient_query = request.get("query", "")
+                patient_info = request.get("patient_info", {})
+                
+                if not hasattr(self, 'dental_agent') or not self.dental_agent:
+                    from src.gtm_voyager.crewai_agents.dental_agent import DentalAgent
+                    self.dental_agent = DentalAgent()
+                
+                result = await self.dental_agent.conduct_enhanced_consultation(
+                    patient_query, patient_info
+                )
+                
+                return {
+                    "status": "success",
+                    "consultation": result,
+                    "enhanced_features": True,
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+                
+            except Exception as e:
+                self.logger.error(f"Enhanced dental consultation error: {e}")
+                return {
+                    "status": "error",
+                    "message": str(e)
+                }
 
         @self.app.get("/api/v1/status")
         async def get_status(username: str = Depends(self.verify_token)):

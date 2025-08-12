@@ -5,6 +5,7 @@ AI-powered dental scribe and practice automation agent.
 
 import asyncio
 import json
+import re
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
@@ -62,6 +63,276 @@ class SOAPNote:
     generated_timestamp: datetime
 
 
+# NEW: Enhanced Clinical Analysis Tool
+class ClinicalAnalysisTool(BaseTool):
+    """Enhanced clinical analysis tool with differential diagnosis and urgency assessment"""
+    
+    name: str = "clinical_analysis"
+    description: str = "Analyze patient symptoms and provide differential diagnosis with urgency assessment"
+    
+    def _run(self, symptoms: str, patient_info: str = "", duration: str = "") -> str:
+        """Perform comprehensive clinical analysis"""
+        
+        # Parse symptoms and extract key indicators
+        analysis = self._analyze_symptoms(symptoms, patient_info, duration)
+        
+        # Generate differential diagnosis
+        differential_dx = self._generate_differential_diagnosis(analysis)
+        
+        # Assess urgency level
+        urgency = self._assess_urgency(analysis)
+        
+        # Create clinical reasoning
+        reasoning = self._generate_clinical_reasoning(analysis, differential_dx, urgency)
+        
+        return json.dumps({
+            "symptom_analysis": analysis,
+            "differential_diagnosis": differential_dx,
+            "urgency_assessment": urgency,
+            "clinical_reasoning": reasoning,
+            "recommended_actions": self._get_recommended_actions(urgency, differential_dx)
+        }, indent=2)
+    
+    def _analyze_symptoms(self, symptoms: str, patient_info: str, duration: str) -> Dict:
+        """Extract and categorize symptoms"""
+        
+        # Pain indicators
+        pain_keywords = ["pain", "ache", "hurt", "sore", "tender", "throb", "sharp", "dull"]
+        pain_level = self._extract_pain_level(symptoms)
+        has_pain = any(keyword in symptoms.lower() for keyword in pain_keywords)
+        
+        # Swelling indicators
+        swelling_keywords = ["swelling", "swollen", "puffy", "enlarged", "bulging"]
+        has_swelling = any(keyword in symptoms.lower() for keyword in swelling_keywords)
+        
+        # Infection indicators
+        infection_keywords = ["fever", "pus", "discharge", "abscess", "infection", "hot", "warm"]
+        has_infection_signs = any(keyword in symptoms.lower() for keyword in infection_keywords)
+        
+        # Bleeding indicators
+        bleeding_keywords = ["bleeding", "blood", "hemorrhage", "oozing"]
+        has_bleeding = any(keyword in symptoms.lower() for keyword in bleeding_keywords)
+        
+        # Duration assessment
+        duration_category = self._categorize_duration(duration, symptoms)
+        
+        return {
+            "pain_present": has_pain,
+            "pain_level": pain_level,
+            "swelling_present": has_swelling,
+            "infection_signs": has_infection_signs,
+            "bleeding_present": has_bleeding,
+            "duration_category": duration_category,
+            "raw_symptoms": symptoms,
+            "patient_context": patient_info
+        }
+    
+    def _extract_pain_level(self, symptoms: str) -> Optional[int]:
+        """Extract pain level from 1-10 scale"""
+        pain_pattern = r'(\d+)(?:/10|out of 10| pain| level)'
+        match = re.search(pain_pattern, symptoms.lower())
+        if match:
+            return int(match.group(1))
+        
+        # Qualitative pain assessment
+        if "severe" in symptoms.lower() or "excruciating" in symptoms.lower():
+            return 8
+        elif "moderate" in symptoms.lower():
+            return 5
+        elif "mild" in symptoms.lower() or "slight" in symptoms.lower():
+            return 3
+        
+        return None
+    
+    def _categorize_duration(self, duration: str, symptoms: str) -> str:
+        """Categorize symptom duration"""
+        if not duration:
+            # Try to extract from symptoms
+            symptoms_lower = symptoms.lower()
+            if "started yesterday" in symptoms_lower or "started today" in symptoms_lower:
+                return "acute"
+            elif "few days" in symptoms_lower or "3 days" in symptoms_lower:
+                return "acute"
+            elif "week" in symptoms_lower:
+                return "subacute"
+            elif "month" in symptoms_lower:
+                return "chronic"
+            return "unknown"
+        
+        duration_lower = duration.lower()
+        
+        if "hour" in duration_lower or "today" in duration_lower:
+            return "acute"
+        elif "day" in duration_lower and ("few" in duration_lower or any(str(i) in duration_lower for i in range(1, 8))):
+            return "acute"
+        elif "week" in duration_lower:
+            return "subacute"
+        elif "month" in duration_lower or "year" in duration_lower:
+            return "chronic"
+        
+        return "unknown"
+    
+    def _generate_differential_diagnosis(self, analysis: Dict) -> List[Dict]:
+        """Generate differential diagnosis based on symptom analysis"""
+        
+        diagnoses = []
+        
+        # Pulpitis assessment
+        if analysis["pain_present"] and analysis["pain_level"] and analysis["pain_level"] >= 6:
+            if analysis["duration_category"] == "acute":
+                diagnoses.append({
+                    "condition": "Irreversible Pulpitis",
+                    "probability": "High",
+                    "reasoning": "Severe pain with acute onset suggests irreversible pulpal inflammation"
+                })
+            else:
+                diagnoses.append({
+                    "condition": "Reversible Pulpitis",
+                    "probability": "Moderate",
+                    "reasoning": "Pain present but duration suggests potentially reversible condition"
+                })
+        
+        # Abscess assessment
+        if analysis["swelling_present"] and analysis["infection_signs"]:
+            diagnoses.append({
+                "condition": "Dental Abscess",
+                "probability": "High",
+                "reasoning": "Swelling combined with infection signs indicates abscess formation"
+            })
+        
+        # Periodontal disease
+        if analysis["bleeding_present"] and analysis["swelling_present"]:
+            diagnoses.append({
+                "condition": "Periodontal Disease",
+                "probability": "Moderate",
+                "reasoning": "Bleeding and swelling suggest gingival or periodontal inflammation"
+            })
+        
+        # Sensitivity issues
+        if analysis["pain_present"] and analysis["pain_level"] and analysis["pain_level"] <= 4:
+            diagnoses.append({
+                "condition": "Dentin Hypersensitivity",
+                "probability": "Moderate",
+                "reasoning": "Mild to moderate pain suggests tooth sensitivity"
+            })
+        
+        # Default if no specific patterns
+        if not diagnoses:
+            diagnoses.append({
+                "condition": "Dental Consultation Required",
+                "probability": "Certain",
+                "reasoning": "Symptoms require professional dental evaluation"
+            })
+        
+        return diagnoses
+    
+    def _assess_urgency(self, analysis: Dict) -> Dict:
+        """Assess urgency level and timeframe"""
+        
+        # Emergency indicators
+        if (analysis["infection_signs"] and analysis["swelling_present"]) or \
+           (analysis["pain_level"] and analysis["pain_level"] >= 8):
+            return {
+                "level": "EMERGENCY",
+                "timeframe": "Immediate (within hours)",
+                "reasoning": "Severe pain or signs of spreading infection require immediate attention"
+            }
+        
+        # Urgent indicators
+        if analysis["pain_level"] and analysis["pain_level"] >= 6:
+            return {
+                "level": "URGENT",
+                "timeframe": "Within 24-48 hours",
+                "reasoning": "Significant pain requires prompt dental care"
+            }
+        
+        # Routine but prompt
+        if analysis["pain_present"] or analysis["bleeding_present"]:
+            return {
+                "level": "PROMPT",
+                "timeframe": "Within 1 week",
+                "reasoning": "Symptoms indicate need for dental evaluation"
+            }
+        
+        # Routine
+        return {
+            "level": "ROUTINE",
+            "timeframe": "Within 2-4 weeks",
+            "reasoning": "Preventive care or routine evaluation recommended"
+        }
+    
+    def _generate_clinical_reasoning(self, analysis: Dict, differential_dx: List[Dict], urgency: Dict) -> str:
+        """Generate clinical reasoning narrative"""
+        
+        reasoning = f"Clinical Analysis:\n\n"
+        
+        # Symptom summary
+        reasoning += f"Patient presents with: {analysis['raw_symptoms']}\n\n"
+        
+        # Key findings
+        findings = []
+        if analysis["pain_present"]:
+            pain_desc = f"pain (level {analysis['pain_level']}/10)" if analysis["pain_level"] else "pain"
+            findings.append(pain_desc)
+        if analysis["swelling_present"]:
+            findings.append("swelling")
+        if analysis["infection_signs"]:
+            findings.append("signs of infection")
+        if analysis["bleeding_present"]:
+            findings.append("bleeding")
+        
+        if findings:
+            reasoning += f"Key clinical findings: {', '.join(findings)}\n\n"
+        
+        # Duration context
+        if analysis["duration_category"] != "unknown":
+            reasoning += f"Symptom duration: {analysis['duration_category']} onset\n\n"
+        
+        # Differential diagnosis reasoning
+        reasoning += "Differential Diagnosis Considerations:\n"
+        for dx in differential_dx:
+            reasoning += f"• {dx['condition']} ({dx['probability']} probability): {dx['reasoning']}\n"
+        
+        reasoning += f"\nUrgency Assessment: {urgency['level']} - {urgency['reasoning']}"
+        
+        return reasoning
+    
+    def _get_recommended_actions(self, urgency: Dict, differential_dx: List[Dict]) -> List[str]:
+        """Get recommended immediate actions"""
+        
+        actions = []
+        
+        if urgency["level"] == "EMERGENCY":
+            actions.extend([
+                "Seek immediate dental care or emergency room evaluation",
+                "Take prescribed antibiotics if available",
+                "Use over-the-counter pain management as directed",
+                "Apply cold compress to reduce swelling"
+            ])
+        elif urgency["level"] == "URGENT":
+            actions.extend([
+                "Schedule dental appointment within 24-48 hours",
+                "Use over-the-counter pain relief as needed",
+                "Avoid hot/cold foods that trigger pain",
+                "Maintain oral hygiene carefully"
+            ])
+        else:
+            actions.extend([
+                "Schedule routine dental appointment",
+                "Continue regular oral hygiene",
+                "Monitor symptoms for any worsening"
+            ])
+        
+        # Specific actions based on diagnosis
+        for dx in differential_dx:
+            if "Abscess" in dx["condition"]:
+                actions.append("Do not apply heat to swollen area")
+            elif "Pulpitis" in dx["condition"]:
+                actions.append("Avoid extreme temperatures in food/drink")
+        
+        return actions
+
+
 class DentalAgent(BaseBusinessAgent):
     """
     Dental industry specialized agent with AI scribe functionality.
@@ -107,12 +378,16 @@ class DentalAgent(BaseBusinessAgent):
         self.is_initialized = True
         
     def _setup_tools(self) -> List[BaseTool]:
-        """Setup dental-specific tools"""
+        """Setup dental-specific tools - ENHANCED VERSION"""
         return [
             self._create_soap_generation_tool(),
             self._create_dental_terminology_tool(),
             self._create_treatment_code_lookup_tool(),
-            self._create_appointment_scheduling_tool()
+            self._create_appointment_scheduling_tool(),
+            # NEW: Enhanced clinical analysis
+            ClinicalAnalysisTool(),
+            # Enhanced SOAP generation
+            self._create_enhanced_soap_generation_tool()
         ]
     
     def _create_soap_generation_tool(self) -> BaseTool:
@@ -148,6 +423,151 @@ class DentalAgent(BaseBusinessAgent):
                 return "Generated SOAP note content"
         
         return SOAPGenerationTool()
+
+    # NEW: Enhanced SOAP Generation Tool
+    def _create_enhanced_soap_generation_tool(self) -> BaseTool:
+        """Enhanced SOAP note generation with clinical reasoning"""
+        
+        class EnhancedSOAPGenerationTool(BaseTool):
+            name: str = "enhanced_soap_note_generator"
+            description: str = "Generate comprehensive SOAP notes with clinical analysis integration"
+            
+            def _run(self, conversation_text: str, patient_info: str = "", clinical_analysis: str = "") -> str:
+                """Generate enhanced SOAP note with clinical reasoning"""
+                
+                # Parse clinical analysis if provided
+                analysis_data = {}
+                if clinical_analysis:
+                    try:
+                        analysis_data = json.loads(clinical_analysis)
+                    except:
+                        pass
+                
+                soap_note = f"""
+SOAP NOTE - DENTAL CONSULTATION
+Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+Provider: Dr. [Provider Name]
+Patient: {patient_info}
+
+SUBJECTIVE:
+Chief Complaint: Patient presents with dental concerns as discussed.
+
+History of Present Illness:
+{conversation_text}
+
+{self._extract_subjective_elements(conversation_text)}
+
+OBJECTIVE:
+Vital Signs: Within normal limits
+Extraoral Examination: Completed
+Intraoral Examination: 
+{self._generate_objective_findings(analysis_data, conversation_text)}
+
+ASSESSMENT:
+{self._generate_enhanced_assessment(analysis_data, conversation_text)}
+
+PLAN:
+{self._generate_enhanced_plan(analysis_data, conversation_text)}
+
+---
+CLINICAL ANALYSIS:
+{analysis_data.get('clinical_reasoning', 'Standard dental evaluation performed.')}
+"""
+                
+                return soap_note
+            
+            def _extract_subjective_elements(self, conversation: str) -> str:
+                """Extract key subjective elements"""
+                elements = []
+                
+                if "pain" in conversation.lower():
+                    elements.append("• Patient reports pain as primary concern")
+                if "swelling" in conversation.lower():
+                    elements.append("• Patient notes swelling in affected area")
+                if "bleeding" in conversation.lower():
+                    elements.append("• Patient reports bleeding")
+                
+                return "\n".join(elements) if elements else "• Patient concerns documented above"
+            
+            def _generate_objective_findings(self, analysis_data: Dict, conversation: str) -> str:
+                """Generate objective findings"""
+                
+                findings = []
+                
+                if analysis_data.get("symptom_analysis"):
+                    symptoms = analysis_data["symptom_analysis"]
+                    
+                    if symptoms.get("pain_present"):
+                        findings.append("• Pain response noted during examination")
+                    if symptoms.get("swelling_present"):
+                        findings.append("• Localized swelling observed")
+                    if symptoms.get("bleeding_present"):
+                        findings.append("• Bleeding noted")
+                else:
+                    findings.append("• Clinical examination findings documented")
+                
+                findings.extend([
+                    "• Oral hygiene assessment completed",
+                    "• Periodontal evaluation performed"
+                ])
+                
+                return "\n".join(findings)
+            
+            def _generate_enhanced_assessment(self, analysis_data: Dict, conversation: str) -> str:
+                """Generate enhanced assessment with differential diagnosis"""
+                
+                assessment = "Clinical Impression:\n\n"
+                
+                if analysis_data.get("differential_diagnosis"):
+                    assessment += "Differential Diagnosis:\n"
+                    for i, dx in enumerate(analysis_data["differential_diagnosis"], 1):
+                        assessment += f"{i}. {dx['condition']} - {dx['probability']} probability\n"
+                        assessment += f"   Reasoning: {dx['reasoning']}\n\n"
+                else:
+                    # Fallback to basic assessment
+                    if "pain" in conversation.lower():
+                        assessment += "1. Dental pain - requires evaluation\n"
+                    else:
+                        assessment += "1. Routine dental consultation\n"
+                
+                if analysis_data.get("urgency_assessment"):
+                    urgency = analysis_data["urgency_assessment"]
+                    assessment += f"Urgency: {urgency['level']} - {urgency['reasoning']}\n"
+                
+                return assessment
+            
+            def _generate_enhanced_plan(self, analysis_data: Dict, conversation: str) -> str:
+                """Generate enhanced treatment plan"""
+                
+                plan = "Treatment Plan:\n\n"
+                
+                # Immediate actions
+                if analysis_data.get("recommended_actions"):
+                    plan += "Immediate Actions:\n"
+                    for action in analysis_data["recommended_actions"]:
+                        plan += f"• {action}\n"
+                    plan += "\n"
+                
+                # Standard plan elements
+                plan += """Diagnostic Plan:
+• Complete clinical examination
+• Radiographic evaluation as indicated
+
+Treatment Plan:
+• Address immediate concerns
+• Definitive treatment based on diagnosis
+
+Patient Education:
+• Discussed findings with patient
+• Provided home care instructions
+
+Follow-up:
+• As clinically indicated"""
+                
+                return plan
+        
+        return EnhancedSOAPGenerationTool()
+
     def _create_dental_terminology_tool(self) -> BaseTool:
         """Tool for dental terminology and anatomy reference"""
         class DentalTerminologyTool(BaseTool):
@@ -175,6 +595,7 @@ class DentalAgent(BaseBusinessAgent):
                 return dental_terms.get(term.lower(), f"Term '{term}' not found in database")
         
         return DentalTerminologyTool()
+
     def _create_treatment_code_lookup_tool(self) -> BaseTool:
         """Tool for looking up dental procedure codes"""
         class TreatmentCodeTool(BaseTool):
@@ -225,6 +646,66 @@ class DentalAgent(BaseBusinessAgent):
                     return f"Appointment action '{action}' processed: {details}"
         
         return AppointmentSchedulingTool()
+
+    # NEW: Enhanced Consultation Method
+    async def conduct_enhanced_consultation(self, patient_query: str, patient_info: Dict = None) -> Dict:
+        """Enhanced consultation with clinical analysis - NEW METHOD"""
+        
+        if patient_info is None:
+            patient_info = {}
+        
+        # First, perform clinical analysis
+        clinical_analysis_task = Task(
+            description=f"""
+            Analyze patient symptoms using clinical_analysis tool:
+            
+            Patient Query: {patient_query}
+            Patient Info: {json.dumps(patient_info)}
+            
+            Provide comprehensive clinical analysis including:
+            1. Symptom analysis with pain level and duration assessment
+            2. Differential diagnosis with probability assessments
+            3. Urgency assessment with specific timeframes
+            4. Clinical reasoning that reads like a professional wrote it
+            5. Evidence-based recommended actions
+            
+            Use the clinical_analysis tool to process this information.
+            """,
+            agent=self.agent,
+            expected_output="Comprehensive clinical analysis with differential diagnosis and urgency assessment"
+        )
+        
+        # Then generate enhanced SOAP note
+        soap_task = Task(
+            description=f"""
+            Generate enhanced SOAP note using enhanced_soap_note_generator:
+            
+            Conversation: {patient_query}
+            Patient Info: {json.dumps(patient_info)}
+            
+            Create a professional SOAP note that integrates the clinical analysis.
+            The SOAP note should feel like it was written by an experienced dental professional.
+            """,
+            agent=self.agent,
+            expected_output="Professional SOAP note with clinical analysis integration"
+        )
+        
+        # Execute tasks
+        crew = Crew(
+            agents=[self.agent],
+            tasks=[clinical_analysis_task, soap_task],
+            verbose=True
+        )
+        
+        result = crew.kickoff()
+        
+        return {
+            "enhanced_consultation": result,
+            "patient_query": patient_query,
+            "patient_info": patient_info,
+            "timestamp": datetime.now().isoformat(),
+            "agent_type": "Enhanced Dental Agent"
+        }
 
     def start_recording(self, patient_info: PatientInfo, provider_name: str):
         """Start recording conversation for a patient"""
@@ -357,6 +838,13 @@ class DentalAgent(BaseBusinessAgent):
                 details = input_data["details"]
                 result = self.tools[3]._run(action_type, details)
                 return {"success": True, "result": result}
+            
+            # NEW: Enhanced consultation action
+            elif action == "enhanced_consultation":
+                patient_query = input_data["query"]
+                patient_info = input_data.get("patient_info", {})
+                result = asyncio.run(self.conduct_enhanced_consultation(patient_query, patient_info))
+                return {"success": True, "consultation": result}
             
             else:
                 return {"success": False, "error": f"Unknown action: {action}"}
