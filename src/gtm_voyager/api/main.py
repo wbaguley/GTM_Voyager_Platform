@@ -349,9 +349,11 @@ class GTMVoyagerAPI:
                 
                 return {"message": "Logout completed"}
                 
+            except HTTPException:
+                raise
             except Exception as e:
                 self.logger.error(f"Logout error: {e}")
-                return {"message": "Logout completed"}  # Always return success for logout
+                raise HTTPException(status_code=500, detail="Logout service error")
         
         # Protected routes
         @self.app.get("/auth/me")
@@ -368,15 +370,18 @@ class GTMVoyagerAPI:
                 "is_2fa_enabled": current_user.is_2fa_enabled,
                 "created_at": current_user.created_at.isoformat()
             }
-        # Include the new endpoint routers for dental agent functionality
+        
+        # Include the endpoint routers
         self.app.include_router(voice_router, prefix="/api/v1", tags=["Voice Processing"])
         self.app.include_router(agent_router, prefix="/api/v1", tags=["Agent Management"])
         self.app.include_router(dental_router, prefix="/api/v1", tags=["Dental Workflows"])
         self.app.include_router(workflow_router, prefix="/api/v1", tags=["Workflow Management"])
         self.app.include_router(status_router, prefix="/api/v1", tags=["System Status"])
+    
     def get_app(self) -> FastAPI:
         """Get the FastAPI application instance"""
         return self.app
 
 # Create the FastAPI application
 app = GTMVoyagerAPI().get_app()
+
