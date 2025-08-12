@@ -1,9 +1,9 @@
 """
-GTM Voyager Platform - Enhanced Main API with CSP Fix
-FastAPI application with CSP override for Swagger UI.
+GTM Voyager Platform - Enhanced Main API with CSP Fix and MCP Integration
+FastAPI application with CSP override for Swagger UI and MCP server integration.
 """
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Request, Response
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse, HTMLResponse
@@ -11,6 +11,7 @@ from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
 from typing import Dict, Any, Optional, List
 import logging
 import time
+import json
 from datetime import datetime
 
 from .auth import auth_manager, AuthResult, TokenPayload
@@ -20,10 +21,13 @@ from ..utils.security import security_manager
 from .dependencies import get_current_user, require_permission, get_client_info
 from .endpoints import voice_router, agent_router, dental_router, workflow_router, status_router
 
+# MCP Server Integration
+from .mcp import GTMVoyagerMCPServer, initialize as initialize_mcp
+
 logger = logging.getLogger(__name__)
 
 class GTMVoyagerAPI:
-    """Enhanced FastAPI application for GTM Voyager Platform with authentication"""
+    """Enhanced FastAPI application for GTM Voyager Platform with authentication and MCP integration"""
     
     def __init__(self):
         """Initialize the enhanced GTM Voyager API"""
@@ -45,7 +49,16 @@ class GTMVoyagerAPI:
         self._setup_error_handlers()
         self._setup_custom_docs()  # Add custom docs with CSP override
         
-        self.logger.info("Enhanced GTM Voyager API initialized with CSP fix")
+        # Initialize MCP Server
+        self.mcp_server = None
+        try:
+            self.mcp_server = initialize_mcp()
+            self.logger.info("MCP Server initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize MCP Server: {e}")
+            self.mcp_server = None
+        
+        self.logger.info("Enhanced GTM Voyager API initialized with CSP fix and MCP integration")
     
     def _setup_logger(self) -> logging.Logger:
         """Set up logging for the API"""
@@ -209,8 +222,33 @@ class GTMVoyagerAPI:
                 content={"detail": "Internal server error", "timestamp": datetime.utcnow().isoformat()},
             )
     
+    async def _authenticate_mcp_websocket(self, websocket) -> bool:
+        """Authenticate MCP WebSocket connection"""
+        try:
+            # Extract token from query parameters
+            query_params = dict(websocket.query_params)
+            token = query_params.get('token')
+            
+            if not token:
+                await websocket.close(code=1008, reason="Authentication token required")
+                return False
+            
+            # For development, accept the specific token
+            expected_token = "sdJSZi%Qqu76x8xD*4x8M*8e!*#f%4*DF*p4!9*7U2AA3&mQXZ"
+            if token == expected_token:
+                self.logger.info("MCP WebSocket authenticated successfully")
+                return True
+            
+            await websocket.close(code=1008, reason="Invalid authentication token")
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"MCP WebSocket authentication error: {e}")
+            await websocket.close(code=1011, reason="Authentication error")
+            return False
+    
     def _setup_routes(self):
-        """Set up API routes with authentication"""
+        """Set up API routes with authentication and MCP endpoints"""
         
         # Public routes (no authentication required)
         @self.app.get("/")
@@ -354,6 +392,76 @@ class GTMVoyagerAPI:
             except Exception as e:
                 self.logger.error(f"Logout error: {e}")
                 raise HTTPException(status_code=500, detail="Logout service error")
+
+        # MCP WebSocket endpoint
+        @self.app.websocket("/mcp")
+        async def mcp_websocket_endpoint(websocket: WebSocket):
+            """MCP WebSocket endpoint for 11.ai integration"""
+            if not self.mcp_server:
+                await websocket.close(code=1011, reason="MCP server not available")
+                return
+            
+            # Authenticate the WebSocket connection
+            if not await self._authenticate_mcp_websocket(websocket):
+                return
+            
+            await websocket.accept()
+            self.logger.info("MCP WebSocket connection established")
+            
+            try:
+                while True:
+                    # Receive message from client
+                    data = await websocket.receive_text()
+                    message = json.loads(data)
+                    
+                    # Process message through MCP server
+                    response = await self.mcp_server.handle_message(message)
+                    
+                    # Send response back to client
+                    await websocket.send_text(json.dumps(response))
+                    
+            except WebSocketDisconnect:
+                self.logger.info("MCP WebSocket client disconnected")
+            except Exception as e:
+                self.logger.error(f"MCP WebSocket error: {e}")
+                try:
+                    await websocket.close(code=1011, reason="Server error")
+                except:
+                    pass
+
+        # MCP health check endpoint
+        @self.app.get("/mcp/health")
+        async def mcp_health():
+            """MCP server health check"""
+            if not self.mcp_server:
+                return {"status": "unavailable", "message": "MCP server not initialized"}
+            
+            return {
+                "status": "healthy",
+                "server": "GTM Voyager MCP Server",
+                "version": "1.0.0",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+
+        # MCP info endpoint
+        @self.app.get("/mcp/info")
+        async def mcp_info():
+            """MCP server information and available tools"""
+            if not self.mcp_server:
+                return {"error": "MCP server not available"}
+            
+            try:
+                tools = await self.mcp_server.get_available_tools()
+                return {
+                    "server": "GTM Voyager MCP Server",
+                    "protocol": "Model Context Protocol",
+                    "tools_count": len(tools),
+                    "tools": [{"name": tool["name"], "description": tool["description"]} for tool in tools],
+                    "timestamp": datetime.utcnow().isoformat()
+                }
+            except Exception as e:
+                self.logger.error(f"MCP info error: {e}")
+                return {"error": "Failed to retrieve MCP information"}
         
         # Protected routes
         @self.app.get("/auth/me")
