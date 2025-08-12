@@ -33,8 +33,32 @@ class GTMVoyagerMCPServer:
         try:
             # Load all available tools
             tools_list = await get_all_mcp_tools()
+            
+            # ENHANCED: Add the enhanced dental consultation tool
+            enhanced_dental_tool = {
+                "name": "enhanced_dental_consultation",
+                "description": "Conduct enhanced dental consultation with clinical analysis and differential diagnosis",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Patient's dental concerns and symptoms"
+                        },
+                        "patient_info": {
+                            "type": "object",
+                            "description": "Patient information including name, age, medical history"
+                        }
+                    },
+                    "required": ["query"]
+                }
+            }
+            
+            # Add the enhanced tool to the tools list
+            tools_list.append(enhanced_dental_tool)
+            
             self.tools = {tool["name"]: tool for tool in tools_list}
-            logger.info(f"Loaded {len(self.tools)} MCP tools")
+            logger.info(f"Loaded {len(self.tools)} MCP tools (including enhanced dental consultation)")
             
             # Load all available resources
             resources_list = await get_all_mcp_resources()
@@ -166,7 +190,12 @@ class GTMVoyagerMCPServer:
             }
         
         try:
-            result = await execute_tool(tool_name, arguments)
+            # ENHANCED: Handle the enhanced dental consultation tool
+            if tool_name == "enhanced_dental_consultation":
+                result = await self.execute_enhanced_dental_consultation(arguments)
+            else:
+                result = await execute_tool(tool_name, arguments)
+            
             return {
                 "result": {
                     "content": [
@@ -184,6 +213,38 @@ class GTMVoyagerMCPServer:
                     "code": -32603,
                     "message": f"Tool execution failed: {str(e)}"
                 }
+            }
+    
+    async def execute_enhanced_dental_consultation(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute the enhanced dental consultation tool"""
+        try:
+            import aiohttp
+            
+            query = arguments.get('query', '')
+            patient_info = arguments.get('patient_info', {})
+            
+            # Call the enhanced consultation endpoint
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    "http://localhost:8000/api/v1/dental/enhanced-consultation",
+                    json={"query": query, "patient_info": patient_info},
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        return result
+                    else:
+                        error_text = await response.text()
+                        return {
+                            "status": "error",
+                            "message": f"API call failed with status {response.status}: {error_text}"
+                        }
+                        
+        except Exception as e:
+            logger.error(f"Error in enhanced dental consultation: {e}")
+            return {
+                "status": "error",
+                "message": f"Enhanced dental consultation failed: {str(e)}"
             }
     
     async def handle_resources_list(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -276,3 +337,4 @@ async def start_server(host: str = "localhost", port: int = None):
 async def stop_server():
     """Stop the global MCP server"""
     await mcp_server.stop_server()
+
